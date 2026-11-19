@@ -9,9 +9,10 @@ import pytest
 from twin_pipeline.pipeline import run_pipeline
 from twin_pipeline.report import write_for_run
 from twin_pipeline.report.__main__ import main as report_main
-from twin_pipeline.result import read_result
+from twin_pipeline.result import StageResult, read_result
 from twin_pipeline.spec import load_spec
 from twin_pipeline.stage import Stage
+from twin_pipeline.stages import all_stages
 from twin_pipeline.stages import report as report_stage
 from twin_pipeline.stages import smoke
 
@@ -31,8 +32,11 @@ def assert_self_contained(html: str):
 
 
 def test_report_on_the_default_pipeline_with_skipped_stages(tmp_path):
-    """The mjcf placeholder skips, smoke skips for lack of an MJCF; the report still runs and says so."""
-    summary = run_pipeline(load_spec(EXAMPLE), runs_dir=tmp_path)
+    """mjcf is skipped (applicable) and smoke skips for lack of an MJCF; the report still runs and says so."""
+    skipped_mjcf = Stage("mjcf", lambda context: StageResult.skipped("mjcf", "stand-in: no MJCF built"))
+    stages = [stage for stage in all_stages() if stage.name != "mjcf"]
+    stages.insert(3, skipped_mjcf)
+    summary = run_pipeline(load_spec(EXAMPLE), runs_dir=tmp_path, stages=stages)
     run_dir = Path(summary["run_dir"])
     result = read_result(run_dir / "report" / "result.json")
     assert result.status == "succeeded" and result.outputs == {"html": "report/report.html"}
@@ -70,12 +74,15 @@ def test_report_after_smoke_links_outputs_relatively(tmp_path):
 
 
 def test_failed_run_is_reported_afterwards(tmp_path, capsys):
-    """The runner stops at a failed stage, so the report stage does not run; the module writes the page from disk."""
+    """The runner stops at a failed stage; the report stage still runs (always=True), and the module redraws it from disk."""
     from test_smoke import fake_mjcf
 
     summary = run_pipeline(load_spec(EXAMPLE), runs_dir=tmp_path, stages=[fake_mjcf(status="failed"), smoke.STAGES[0], REPORT])
     run_dir = Path(summary["run_dir"])
-    assert summary["status"] == "failed" and not (run_dir / "report").exists()
+    assert summary["status"] == "failed" and summary["stopped_at"] == "mjcf"
+    assert [row["status"] for row in summary["stages"]] == ["failed", "not_run", "succeeded"]
+    staged = page_of(run_dir)
+    assert "MESH_TOO_LARGE" in staged and "the run stopped at <b>mjcf</b>" in staged
     assert report_main([str(run_dir)]) == 0
     assert capsys.readouterr().out.strip().endswith("report.html")
     html = page_of(run_dir)

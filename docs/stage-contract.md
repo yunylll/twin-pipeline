@@ -12,7 +12,7 @@ runs/<robot>/<YYYYmmdd-HHMMSS>/
 
 ## A stage
 
-A stage is a `Stage(name, run, description)` in `src/twin_pipeline/stages/<module>.py`. `run(context)` returns a `StageResult` and does not raise for expected problems; an exception is caught and recorded as `error` (`STAGE_CRASHED`, with `traceback.txt`).
+A stage is a `Stage(name, run, description, always=False)` in `src/twin_pipeline/stages/<module>.py`. A stage with `always=True` (the report) also runs after an earlier stage stopped the run; it sees the results so far and does not change `stopped_at` or the run status. `run(context)` returns a `StageResult` and does not raise for expected problems; an exception is caught and recorded as `error` (`STAGE_CRASHED`, with `traceback.txt`).
 
 `StageContext` gives:
 
@@ -85,7 +85,7 @@ Reads `mjcf`; skipped (applicable) when there is none or MuJoCo is not installed
 
 The page shows the run status, each stage's status, reason, warnings, errors, review items, metrics and outputs (relative links), the smoke numbers per joint, the provenance tables (every joint value set in twin.yaml with its source, every assumption, effort/velocity the URDF gives without a provenance; `assumed` rows highlighted) and the differences from the previous run of the same robot in the same runs folder (stage statuses, metrics, twin.yaml values and their sources).
 
-The report stage only sees the stages before it, and the runner stops at a failed or unapproved stage, so the stage only runs when the run got that far; its status is marked as provisional because run.json is written after it. For any run, including one that stopped, write the page from disk with `python -m twin_pipeline.report <run folder> [--out page.html]` (default `<run>/report/report.html`; no result.json is written).
+The report stage is declared `always=True`: it runs even after a failed or unapproved stage stopped the run, and sees the results of the stages that ran. Its run status is marked as provisional because run.json is written after it. To redraw the page of any run from disk, use `python -m twin_pipeline.report <run folder> [--out page.html]` (default `<run>/report/report.html`; no result.json is written).
 
 ## Run status
 

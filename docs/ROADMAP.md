@@ -4,7 +4,12 @@
 
 `twin.yaml` format and validation, stage contract, runner with stop/resume/approve, CLI, placeholder stages, the primitive-shape demo arm, tests.
 
-## Phase 1 — parallel work
+## Phase 1 — parallel work (done, merged 2026-11-19)
+
+Integration fixes at the merge: `TwinSpec.limits` applies `zero_offset` for every stage (it was only applied in the mjcf builder, so smoke reported `LIMITS_MISMATCH`); stages can be `always=True` and the report is, so a stopped run still gets its page; the builder uses MuJoCo's `implicitfast` integrator; the demo arm's gains are high enough to hold its pose under gravity, so `twin run` passes end to end on both examples.
+
+Open from phase 1: actuator gains (`kp`, `kv`) have no provenance yet, so the report cannot list them as assumed; URDF `<mimic>` joints are not modelled (the mjcf stage warns).
+
 
 Each piece owns its files. Do not edit another piece's files; if a shared file must change, keep the edit small and additive and say so in the commit message.
 

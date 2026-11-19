@@ -17,6 +17,7 @@ class StageContext:
     stage_dir: Path
     results: dict[str, StageResult] = field(default_factory=dict)
     options: dict = field(default_factory=dict)
+    stage_names: list[str] = field(default_factory=list)  # every stage of this pipeline, in order
 
     def output(self, stage: str, key: str) -> Path | None:
         """A file an earlier stage of this run produced, or None if that stage did not pass."""
@@ -44,3 +45,6 @@ class Stage:
     name: str
     run: Callable[[StageContext], StageResult]
     description: str = ""
+    # always: also run after an earlier stage stopped the run (e.g. the report); it sees the results so far
+    # and does not change where the run stopped or its status
+    always: bool = False

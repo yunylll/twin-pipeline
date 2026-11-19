@@ -107,6 +107,19 @@ def test_missing_urdf_is_not_cross_checked_yet(tmp_path, data):
     assert not spec.urdf_path.exists()
 
 
+def test_zero_offset_shifts_urdf_limits_only(data):
+    from twin_pipeline.spec import TwinSpec
+    data["joints"]["pitch_joint"] = {"zero_offset": 0.1, "source": "assumed"}
+    data["joints"]["elbow_joint"]["zero_offset"] = 0.5
+    spec = TwinSpec(EXAMPLE, data)
+    urdf = read_urdf(EXAMPLE.parent / "urdf" / "arm_demo.urdf")
+    lower, upper = spec.limits("pitch_joint", urdf)  # URDF [-1.57, 1.57] in the twin's coordinate
+    assert lower == pytest.approx(-1.67) and upper == pytest.approx(1.47)
+    assert spec.limits("elbow_joint", urdf) == (-2.0, 2.0)  # twin.yaml limits are already in the twin's coordinate
+    data["home"]["pitch_joint"] = 1.5
+    assert any("home.pitch_joint: 1.5 is outside the effective limits" in e for e in check_against_urdf(spec, urdf))
+
+
 def test_override_merged_with_urdf_limits(data):
     spec_data = copy.deepcopy(data)
     spec_data["joints"]["pitch_joint"] = {"lower": 2.0, "source": "assumed"}

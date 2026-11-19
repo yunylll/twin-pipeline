@@ -3,7 +3,7 @@
 Two ways in:
   * ``from_context`` while the report stage runs: the results of the stages that ran before it;
   * ``from_run_dir`` afterwards, from run.json and the result.json files, which also covers runs that
-    stopped before the report stage (the runner stops at a failed stage).
+    were made before the report stage ran always (or to redraw a page).
 """
 
 from __future__ import annotations
@@ -173,16 +173,23 @@ def _fill(data: ReportData, spec: TwinSpec | None, urdf_path: Path | None):
 
 def from_context(context, title: str | None = None) -> ReportData:
     """The report stage's view: the results of every stage that ran before it in this run."""
-    from ..pipeline import _entry, _overall
+    from ..pipeline import overall_status, stage_entry
 
-    rows = [StageRow(name, result.status, result, smoke=_smoke(context.run_dir, result) if name == "smoke" else None)
-            for name, result in context.results.items() if name != "report"]
-    entries = [_entry(row.result, row.name) for row in rows] + [{"name": "report", "status": "succeeded", "passed": True}]
+    order = [name for name in (context.stage_names or list(context.results)) if name != "report"]
+    order += [name for name in context.results if name not in order and name != "report"]
+    rows = []
+    for name in order:
+        result = context.results.get(name)
+        if result is None:  # a stage the runner did not run because an earlier one stopped the run
+            rows.append(StageRow(name, "not_run"))
+        else:
+            rows.append(StageRow(name, result.status, result, smoke=_smoke(context.run_dir, result) if name == "smoke" else None))
+    entries = [stage_entry(row.result, row.name) for row in rows] + [{"name": "report", "status": "succeeded", "passed": True}]
     rows.append(StageRow("report", "running"))
     spec = context.spec
     data = ReportData(run_dir=context.run_dir, report_dir=context.stage_dir, robot=spec.robot,
                       title=title or spec.section("report").get("title") or spec.robot,
-                      status=_overall(entries, subset=False), provisional=True,
+                      status=overall_status(entries, subset=False), provisional=True,
                       started_at=min((r.result.started_at for r in rows if r.result and r.result.started_at), default=None),
                       finished_at=None, spec_sha256=spec.sha256, environment=_environment(), stages=rows)
     _fill(data, spec, context.urdf())

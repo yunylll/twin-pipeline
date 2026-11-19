@@ -80,11 +80,23 @@ class TwinSpec:
             return None
         return (override.get("sources") or {}).get(field, override.get("source"))
 
+    def zero_offset(self, joint) -> float:
+        return float(self.joint_override(joint).get("zero_offset", 0.0))
+
     def limits(self, joint, urdf: UrdfModel) -> tuple[float | None, float | None]:
-        """Effective (lower, upper): the twin.yaml override if given, else the URDF value."""
-        override = self.joint_override(joint)
-        item = urdf.joints[joint]
-        return override.get("lower", item.lower), override.get("upper", item.upper)
+        """Effective (lower, upper) in the twin's joint coordinate, the one every stage uses.
+
+        zero_offset o puts the twin's zero at URDF position o, so twin q = URDF q - o: a limit given in
+        twin.yaml is already in the twin's coordinate and is used as it is; a URDF limit is shifted by -o.
+        """
+        override, item, offset = self.joint_override(joint), urdf.joints[joint], self.zero_offset(joint)
+
+        def pick(key, urdf_value):
+            if key in override:
+                return override[key]
+            return None if urdf_value is None else urdf_value - offset
+
+        return pick("lower", item.lower), pick("upper", item.upper)
 
 
 def _validate_joints(joints: Any) -> list[str]:

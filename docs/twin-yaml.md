@@ -28,13 +28,13 @@ joints:
     velocity: 2.0        # > 0
     damping: 0.1         # >= 0
     friction: 0.0        # >= 0
-    zero_offset: 0.0     # added to the URDF zero
+    zero_offset: 0.0     # the twin's zero sits at this URDF position: twin q = URDF q - zero_offset
     source: assumed      # cad | assumed | measured | calibrated — applies to every value given
     sources: {effort: measured}   # optional per-value provenance, overrides source
     note: Soft limits until the real stops are measured.
 ```
 
-Every value given needs a provenance, through `source` or `sources.<value>`. An override replaces the URDF value; values not given keep the URDF's. Against the URDF: the joint must exist and be movable; `lower`/`upper` are not allowed on a continuous joint; the merged lower must not exceed the merged upper.
+Every value given needs a provenance, through `source` or `sources.<value>`. An override replaces the URDF value; values not given keep the URDF's. All limits and `home` values are in the twin's joint coordinate: with a `zero_offset`, `lower`/`upper` given here are used as they are and URDF limits are shifted by `-zero_offset` (`TwinSpec.limits` does this for every stage). Against the URDF: the joint must exist and be movable; `lower`/`upper` are not allowed on a continuous joint; the merged lower must not exceed the merged upper.
 
 Provenance meanings: `cad` taken from the model; `assumed` a working value nobody has checked; `measured` read off the real machine or its datasheet; `calibrated` fitted from recorded data. The report lists every `assumed` value and assumption.
 

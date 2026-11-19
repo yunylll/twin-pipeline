@@ -2,6 +2,7 @@
 
 Rules (docs/stage-contract.md):
   * failed / error stops the run; needs_review stops it until the user approves on a resumed run;
+    stages marked always (the report) still run after a stop and see the results so far;
   * skipped does not stop it (later stages see the missing outputs and decide for themselves);
   * on --resume, stages that passed are kept as long as nothing before them was re-run.
 """
@@ -60,7 +61,7 @@ def _execute(stage: Stage, context: StageContext) -> StageResult:
     return result
 
 
-def _entry(result: StageResult | None, name: str, *, reused: bool = False) -> dict:
+def stage_entry(result: StageResult | None, name: str, *, reused: bool = False) -> dict:
     if result is None:
         return {"name": name, "status": "not_run", "passed": False}
     row = {"name": name, "status": result.status, "passed": result.passed, "result": f"{name}/result.json"}
@@ -75,7 +76,7 @@ def _entry(result: StageResult | None, name: str, *, reused: bool = False) -> di
     return row
 
 
-def _overall(entries: list[dict], subset: bool) -> str:
+def overall_status(entries: list[dict], subset: bool) -> str:
     statuses = [row["status"] for row in entries]
     if "failed" in statuses or "error" in statuses:
         return "failed"
@@ -126,38 +127,39 @@ def run_pipeline(spec: TwinSpec, *, runs_dir: Path | None = None, only: list[str
     entries: list[dict] = []
     stopped_at, rerun = None, False
     for stage in stages:
-        if stopped_at is not None:
-            entries.append(_entry(None, stage.name))
+        if stopped_at is not None and not stage.always:
+            entries.append(stage_entry(None, stage.name))
             continue
         prior = previous.get(stage.name)
         if only and stage.name not in only:
             if prior is not None and prior.passed and not rerun:
                 results[stage.name] = prior
-                entries.append(_entry(prior, stage.name, reused=True))
+                entries.append(stage_entry(prior, stage.name, reused=True))
             else:
-                entries.append(_entry(None, stage.name))
+                entries.append(stage_entry(None, stage.name))
             continue
         if prior is not None and not rerun:
             if prior.passed:
                 results[stage.name] = prior
-                entries.append(_entry(prior, stage.name, reused=True))
+                entries.append(stage_entry(prior, stage.name, reused=True))
                 continue
             if prior.status == "needs_review" and stage.name in approve:
                 prior.passed, prior.approved, prior.approved_at = True, True, now()
                 write_result(run_dir / stage.name / "result.json", prior)
                 results[stage.name] = prior
-                entries.append(_entry(prior, stage.name, reused=True))
+                entries.append(stage_entry(prior, stage.name, reused=True))
                 continue
         rerun = True
-        context = StageContext(spec, run_dir, run_dir / stage.name, results, dict(options or {}))
+        context = StageContext(spec, run_dir, run_dir / stage.name, results, dict(options or {}), list(names))
         result = _execute(stage, context)
         write_result(run_dir / stage.name / "result.json", result)
         results[stage.name] = result
-        entries.append(_entry(result, stage.name))
-        if result.status in ("failed", "error") or (result.status == "needs_review" and not result.passed):
+        entries.append(stage_entry(result, stage.name))
+        stops = result.status in ("failed", "error") or (result.status == "needs_review" and not result.passed)
+        if stops and stopped_at is None:
             stopped_at = stage.name
 
-    status = _overall(entries, subset=bool(only))
+    status = overall_status(entries, subset=bool(only))
     summary = {
         "schema_version": RUN_SCHEMA,
         "robot": spec.robot,

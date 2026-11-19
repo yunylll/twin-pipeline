@@ -95,7 +95,7 @@ def test_arm_demo_joints_actuators_and_home(tmp_path):
     assert np.allclose(model.jnt_actfrcrange[id_of(model, mujoco.mjtObj.mjOBJ_JOINT, "pitch_joint")], [-15, 15])
     finger, pitch = actuator(model, "finger_joint"), actuator(model, "pitch_joint")
     assert finger.gainprm[0] == 200.0 and finger.biasprm[2] == -5.0
-    assert pitch.gainprm[0] == 50.0 and pitch.biasprm[2] == -2.0
+    assert pitch.gainprm[0] == 300.0 and pitch.biasprm[2] == -10.0
     assert np.allclose(actuator(model, "elbow_joint").ctrlrange, [-2.0, 2.0])
     assert not model.actuator_ctrllimited[id_of(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "yaw_joint")]
     key = model.key("home")

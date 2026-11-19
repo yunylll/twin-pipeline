@@ -72,15 +72,10 @@ def gravity(up_axis: str) -> list[float]:
 
 
 def joint_values(spec: TwinSpec, urdf: UrdfModel, name: str) -> JointValues:
-    """zero_offset o moves the joint zero to URDF position o, so twin q = URDF q - o: URDF limits shift by -o,
-    limits given in twin.yaml are already in the twin's coordinate and are used as they are."""
+    """Limits in the twin's coordinate (spec.limits applies zero_offset: twin q = URDF q - zero_offset)."""
     item, override = urdf.joints[name], spec.joint_override(name)
-    offset = float(override.get("zero_offset", 0.0))
+    offset = spec.zero_offset(name)
     lower, upper = spec.limits(name, urdf) if item.bounded else (None, None)
-    if lower is not None and "lower" not in override:
-        lower -= offset
-    if upper is not None and "upper" not in override:
-        upper -= offset
     return JointValues(name, item.type, lower, upper, override.get("effort", item.effort),
                        override.get("velocity", item.velocity), offset)
 
@@ -229,6 +224,9 @@ def build_mjcf(spec: TwinSpec, urdf_path: Path, out_dir: Path) -> Build:
         raise BuildError("URDF_IMPORT_FAILED", f"MuJoCo's URDF importer refused {urdf_path.name}: {error}") from None
     mjspec.compiler.inertiafromgeom = mj.mjtInertiaFromGeom.mjINERTIAFROMGEOM_FALSE
     mjspec.option.gravity = gravity(spec.up_axis)
+    # implicitfast integrates actuator and joint damping implicitly: the default Euler integrator makes
+    # high-kv position actuators on light links chatter (found by the smoke stage on the demo arm)
+    mjspec.option.integrator = mj.mjtIntegrator.mjINT_IMPLICITFAST
 
     assets = out_dir / ASSETS_DIR
     max_faces = meshes.get("max_faces", STL_FACE_LIMIT)

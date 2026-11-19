@@ -12,7 +12,7 @@ meshes:
 collision:
   default: none
 actuators:
-  default: {type: position, kp: 50.0, kv: 2.0}
+  default: {type: position, kp: 300.0, kv: 10.0}
   joints:
     finger_joint: {type: position, kp: 200.0, kv: 5.0}
 

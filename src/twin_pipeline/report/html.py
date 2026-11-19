@@ -301,7 +301,7 @@ def render(data: ReportData) -> str:
 {notes}
 <footer>twin.yaml of this run: {_link(data, "twin.yaml")} (sha256 {sha}…) · run summary: {_link(data, "run.json") if (data.run_dir / "run.json").exists() else "run.json is written when the run ends"}<br>
 {env}<br>
-The report stage covers the stages that ran before it; the runner stops at a failed stage, so for such a run write the page afterwards with
+The report stage runs even when an earlier stage stopped the run; to redraw this page from disk use
 <code>python -m twin_pipeline.report &lt;run folder&gt;</code>.</footer>
 </main></body></html>
 """

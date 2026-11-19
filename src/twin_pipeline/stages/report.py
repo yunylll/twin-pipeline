@@ -2,9 +2,9 @@
 
 Owner: session B (docs/ROADMAP.md). Section owned: report. Output: ``html`` (report/report.html).
 
-The page covers the stages that ran before this one. The runner stops at a failed or unapproved
-stage, so for such a run the report stage does not run; write the page afterwards with
-``python -m twin_pipeline.report <run folder>`` (see twin_pipeline/report).
+The page covers the stages that ran before this one. The stage is marked ``always``, so it also runs
+after a failed or unapproved stage stopped the run and shows the run as stopped there. To redraw the
+page of any run from disk later, use ``python -m twin_pipeline.report <run folder>`` (see twin_pipeline/report).
 """
 
 from __future__ import annotations
@@ -35,6 +35,6 @@ def run(context: StageContext) -> StageResult:
     return StageResult.succeeded("report", outputs={"html": context.rel(path)}, metrics=metrics, warnings=list(data.notes))
 
 
-STAGES = [Stage("report", run, "Write an HTML report of the run")]
+STAGES = [Stage("report", run, "Write an HTML report of the run", always=True)]
 SECTIONS = {"report": validate_report}
 URDF_CHECKS = []

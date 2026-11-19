@@ -26,7 +26,8 @@ def test_default_pipeline_on_example(spec, tmp_path):
     for name in ("detect", "export", "ingest"):
         assert rows[name]["status"] == "skipped" and rows[name]["applicable"] is False
     assert rows["mjcf"]["status"] == "succeeded" and (run_dir / "mjcf" / "model.xml").exists()
-    assert summary["status"] == "incomplete" and summary["passed"] is False
+    assert rows["smoke"]["status"] == "succeeded" and rows["report"]["status"] == "succeeded"
+    assert summary["status"] == "succeeded" and summary["passed"] is True
     assert read_result(run_dir / "mjcf" / "result.json").stage == "mjcf"
 
 
@@ -106,6 +107,21 @@ def test_applicable_skip_is_incomplete(spec, tmp_path):
     assert run_pipeline(spec, runs_dir=tmp_path, stages=stages)["status"] == "succeeded"
 
 
+def test_always_stage_runs_after_a_stop(spec, tmp_path):
+    log, seen = [], {}
+
+    def report(context):
+        log.append("report")
+        seen["results"] = sorted(context.results)
+        return StageResult.succeeded("report")
+
+    stages = [fake("a", "failed", log), fake("b", "succeeded", log), Stage("report", report, always=True)]
+    summary = run_pipeline(spec, runs_dir=tmp_path, stages=stages)
+    assert log == ["a", "report"] and seen["results"] == ["a"]
+    assert summary["status"] == "failed" and summary["stopped_at"] == "a"
+    assert [row["status"] for row in summary["stages"]] == ["failed", "not_run", "succeeded"]
+
+
 def test_subset_run_is_partial(spec, tmp_path):
     stages = [fake("a", "succeeded", []), fake("b", "succeeded", [])]
     assert run_pipeline(spec, runs_dir=tmp_path, stages=stages, only=["a"])["status"] == "partial"
@@ -116,7 +132,7 @@ def test_subset_run_is_partial(spec, tmp_path):
 def test_cli(tmp_path, capsys):
     assert main(["validate", str(EXAMPLE)]) == 0
     assert "OK: arm_demo" in capsys.readouterr().out
-    assert main(["run", str(EXAMPLE), "--runs-dir", str(tmp_path)]) == 3
+    assert main(["run", str(EXAMPLE), "--runs-dir", str(tmp_path)]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["status"] == "incomplete"
+    assert out["status"] == "succeeded"
     assert main(["stages"]) == 0
