@@ -23,7 +23,10 @@ B does not need A's code: until A lands, B's tests build an MJCF from the demo U
 
 Shared files already set up so A and B do not need to touch them: `pyproject.toml` (the `sim` extra has `mujoco` and `numpy`), CI, `stages/__init__.py` (fixed order), `result.py`, `pipeline.py`, `stage.py`.
 
-## Phase 2 — integration (after A and B)
+## Phase 2 — integration (in progress)
+
+Done: `stages/cad.py` (detect / export / ingest) on solidworks-urdf-tool's CLI, with its `--publish-to` doing the archiving; offline tests against a fake tool (`tests/fake_sw_tool`).
+
 
 - `stages/cad.py`: `detect` (solidworks-urdf-tool `validate-config --model`, no SolidWorks start), `export` (`check` then export through the tool's Python API, reusing the prepared copy), `ingest` (copy the package into `cad.archive`, earlier exports to `history/`).
 - Run on real twins from a private repository that keeps their `twin.yaml`, CAD and calibration; nothing of them comes into this repository.

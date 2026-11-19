@@ -27,7 +27,7 @@ CORE_KEYS = ("schema_version", "robot", "description", "urdf", "up_axis", "joint
 JOINT_VALUES = ("lower", "upper", "effort", "velocity", "damping", "friction", "zero_offset")
 JOINT_KEYS = JOINT_VALUES + ("source", "sources", "note")
 ASSUMPTION_KEYS = ("id", "text", "source", "value", "note")
-ROBOT_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_\-]*$")
+ROBOT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-]*$")
 
 
 class SpecError(ValueError):
@@ -170,7 +170,7 @@ def validate_data(data: Any) -> list[str]:
         errors.append(f"schema_version: expected {SCHEMA_VERSION}, got {checks.show(data.get('schema_version'))}")
     robot = data.get("robot")
     if not isinstance(robot, str) or not ROBOT_NAME.match(robot):
-        errors.append(f"robot: expected a name of letters, digits, '_' or '-' starting with a letter, got {checks.show(robot)}")
+        errors.append(f"robot: expected a name of letters, digits, '_' or '-' starting with a letter or digit, got {checks.show(robot)}")
     if "description" in data:
         errors += checks.string("description", data["description"])
     if "urdf" in data:

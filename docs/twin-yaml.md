@@ -9,7 +9,7 @@ Example: [examples/arm_demo/twin.yaml](../examples/arm_demo/twin.yaml).
 | Key | Required | Meaning |
 |---|---|---|
 | `schema_version` | yes | `1` |
-| `robot` | yes | Name: letters, digits, `_`, `-`; starts with a letter. Runs go to `runs/<robot>/`. |
+| `robot` | yes | Name: letters, digits, `_`, `-`; starts with a letter or digit. Runs go to `runs/<robot>/`. |
 | `description` | no | Free text. |
 | `urdf` | unless `cad` is given | The URDF downstream stages use. With a `cad` section, `ingest` provides it instead. |
 | `up_axis` | no | Which model axis points up: `+x -x +y -y +z -z`, default `+z`. The mjcf stage sets gravity from it. |
@@ -44,7 +44,7 @@ Each section belongs to one stage module, which validates it (`SECTIONS`) and cr
 
 | Section | Owner | Keys today |
 |---|---|---|
-| `cad` | `stages/cad.py` | `model` (required), `config`, `package`, `tool`, `archive`, `timeout_seconds`, `stall_timeout_seconds` |
+| `cad` | `stages/cad.py` | `model` (required: the .SLDASM/.SLDPRT), `config` (the tool's JSON export configuration; without it the CAD's saved configuration), `package` (default `<robot>_description`), `tool` (the solidworks-urdf-tool folder; else the environment variable `TWIN_SW_URDF_TOOL` or `--option tool=`), `archive` (where the tool publishes passed exports: `<archive>/urdf/<package>/` and `<archive>/export/`, earlier ones to `export/history/`; default the folder of twin.yaml), `check_first` (default true), `use_saved_files` (default false), `timeout_seconds` (default 14400), `stall_timeout_seconds`. With `cad`, `urdf` may be left out. |
 | `meshes` | `stages/mjcf.py` | `max_faces` (int ≥ 1, default 200 000 = MuJoCo's STL decoder limit; STL files with more faces are split losslessly), `packages: {name: folder}` (where `package://name/` points; default: the nearest folder called `name` above the URDF) |
 | `collision` | `stages/mjcf.py` | `default` (default `mesh`), `links: {link: mode}`; mode is `none`, `mesh`, `convex_hull` or `convex_decomposition` (needs `pip install coacd`, else the stage fails) |
 | `actuators` | `stages/mjcf.py` | `default`, `joints: {joint: {...}}`; each `{type: position\|velocity\|motor\|none, kp, kv}`; `type` is required, `position` needs `kp` (`kv` optional), `velocity` needs `kv`, `motor`/`none` take neither |
