@@ -119,13 +119,37 @@ def test_what_makes_an_export_needed(twin, tmp_path):
     data["links"] = [{"name": "base_link"}]
     config.write_text(json.dumps(data), encoding="utf-8")
     changed = result(run(folder, tmp_path, stages=CAD_STAGES[:1]), "detect")
-    assert changed.metrics["export_reasons"] == ["the export configuration differs from the archived one"]
+    assert changed.metrics["export_reasons"] == ["the export configuration changed since the archived export"]
 
     data["links"] = []
     config.write_text(json.dumps(data), encoding="utf-8")
     (folder / "source" / "robot.SLDASM").write_bytes(b"assembly v2")
     reasons = result(run(folder, tmp_path, stages=CAD_STAGES[:1]), "detect").metrics["export_reasons"]
     assert any("model file changed" in r for r in reasons) and any("CAD files the archived export read" in r for r in reasons)
+
+
+def test_config_edited_in_the_archive_is_noticed(twin, tmp_path):
+    """cad.config pointing at the archived export/export-config.json, edited in place for the next export."""
+    folder, tool = twin
+    data = yaml.safe_load((folder / "twin.yaml").read_text(encoding="utf-8"))
+    data["cad"]["config"] = "export/export-config.json"
+    (folder / "twin.yaml").write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    (folder / "export").mkdir()
+    shutil.move(str(folder / "export-config.json"), str(folder / "export" / "export-config.json"))
+    run(folder, tmp_path, stages=CAD_STAGES)
+    assert json.loads((folder / "export" / "twin-pipeline-export.json").read_text(encoding="utf-8"))["config_fingerprint"]
+    assert result(run(folder, tmp_path, stages=CAD_STAGES[:1]), "detect").metrics["export_needed"] is False
+
+    config = folder / "export" / "export-config.json"
+    edited = json.loads(config.read_text(encoding="utf-8"))
+    edited["exclude_hidden_bodies"] = ["bracket.SLDPRT"]
+    config.write_text(json.dumps(edited), encoding="utf-8")
+    reasons = result(run(folder, tmp_path, stages=CAD_STAGES[:1]), "detect").metrics["export_reasons"]
+    assert reasons == ["the export configuration changed since the archived export"]
+
+    (folder / "export" / "twin-pipeline-export.json").unlink()  # an archive from before twin-pipeline
+    reasons = result(run(folder, tmp_path, stages=CAD_STAGES[:1]), "detect").metrics["export_reasons"]
+    assert len(reasons) == 1 and "cannot be ruled out" in reasons[0]
 
 
 def test_force_export_option(twin, tmp_path):

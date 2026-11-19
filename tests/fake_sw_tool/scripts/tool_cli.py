@@ -41,7 +41,11 @@ def main():
     elif command == "start-export":
         kind = "check" if "--check-only" in args else "export"
         job_id = f"{kind}-{uuid.uuid4().hex[:8]}"
-        (jobs / f"{job_id}.json").write_text(json.dumps({"kind": kind, "args": args}), encoding="utf-8")
+        job = {"kind": kind, "args": args}
+        if option(args, "--config"):  # like the real tool: the job works on its own copy of the configuration
+            job["config"] = str(jobs / f"{job_id}-config.json")
+            shutil.copy2(option(args, "--config"), job["config"])
+        (jobs / f"{job_id}.json").write_text(json.dumps(job), encoding="utf-8")
         answer = {"job_id": job_id, "job": str(jobs / job_id), "status": "queued"}
     elif command == "job":
         job_id = args[1]
@@ -50,18 +54,17 @@ def main():
         answer = {"job_id": job_id, "status": "succeeded", "passed": True, "operation": kind, "warnings": []}
         answer.update(scenario.get(kind, {}))
         if kind == "export" and answer["status"] == "succeeded" and answer["passed"] and "--publish-to" in start:
-            answer["publish"] = publish(start, job_id, scenario, answer)
+            answer["publish"] = publish(start, job_id, scenario, answer, job.get("config"))
     else:
         answer = {"passed": False, "status": "rejected", "error": {"code": "INVALID_INPUT", "message": f"fake tool: no {command}"}}
     print(json.dumps(answer, indent=2))
     return 0 if answer.get("passed") else 1
 
 
-def publish(start, job_id, scenario, answer):
+def publish(start, job_id, scenario, answer, config):
     if scenario.get("publish") is False:
         return {"passed": False, "error": {"code": "PUBLISH_FAILED", "message": "fake publish failure"}}
     model, target, package = Path(start[1]), Path(option(start, "--publish-to")), option(start, "--package")
-    config = option(start, "--config")
     export, destination = target / "export", target / "urdf" / package
     moved = []
     if destination.exists() or (export / "export-result.json").exists():

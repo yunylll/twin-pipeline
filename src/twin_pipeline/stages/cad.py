@@ -15,7 +15,9 @@ ingest  Makes the archived package the URDF of the run. After a new export it st
         (``twin run --resume <run> --approve ingest``); a reused export passes straight through.
 
 The archive is the one place a stage writes outside its own folder: that is the twin's own
-directory, and the tool, not this stage, writes there.
+directory. The tool publishes there; this module adds only <archive>/export/twin-pipeline-export.json,
+the fingerprint of the configuration the archived export was made from (the tool keeps no copy of
+it, and cad.config is often the archived export-config.json itself, edited in place).
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ TOOL_ENV = "TWIN_SW_URDF_TOOL"
 TERMINAL = {"succeeded", "failed", "timed_out", "interrupted", "rejected", "cancelled"}
 CAD_SUFFIXES = {".sldasm", ".sldprt", ".slddrw"}
 DEFAULT_TIMEOUT = 14400
+FINGERPRINT_FILE = "twin-pipeline-export.json"
 WAIT_STEP = 300  # seconds per `tool_cli.py job --wait` call
 
 
@@ -105,6 +108,20 @@ def _without_source(config):
     if not isinstance(config, dict):
         return config
     return {key: value for key, value in config.items() if key != "source"}
+
+
+def config_fingerprint(path: Path) -> str | None:
+    config = _read_json(path)
+    if config is None:
+        return None
+    return hashlib.sha256(json.dumps(_without_source(config), sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def fingerprint_path(spec) -> Path:
+    """Written by the export stage after each publish: which configuration the archived export was made from.
+    The tool's own record keeps no copy of it, and cad.config is often the archived copy itself
+    (<archive>/export/export-config.json), edited in place for the next export."""
+    return archive_dir(spec) / "export" / FINGERPRINT_FILE
 
 
 # ---- running the tool ----
@@ -205,7 +222,15 @@ def export_reasons(spec, model: Path, config_path: Path | None, archived: dict) 
     else:
         reasons.append("the archived export did not record the hashes of the CAD files it read")
     if config_path is not None:
-        if _without_source(_read_json(config_path)) != _without_source(archived["config"]):
+        fingerprint = _read_json(fingerprint_path(spec)) or {}
+        archived_copy = archive_dir(spec) / "export" / "export-config.json"
+        if fingerprint.get("job_id") and fingerprint.get("job_id") == record.get("job_id"):
+            if fingerprint.get("config_fingerprint") != config_fingerprint(config_path):
+                reasons.append("the export configuration changed since the archived export")
+        elif archived_copy.exists() and config_path.resolve() == archived_copy.resolve():
+            reasons.append("cad.config is the archived copy itself and the archived export was not made by twin-pipeline, "
+                           "so an edit since that export cannot be ruled out")
+        elif _without_source(_read_json(config_path)) != _without_source(archived["config"]):
             reasons.append("the export configuration differs from the archived one")
     elif archived["config"] is not None:
         reasons.append("twin.yaml has no cad.config but the archived export used a JSON configuration")
@@ -279,6 +304,8 @@ def export(context: StageContext) -> StageResult:
     if cad.get("use_saved_files"):
         common.append("--use-saved-files")
     config = ["--config", str(spec.resolve(cad["config"]))] if cad.get("config") else []
+    # taken before the jobs start: an edit while the export runs must not count as exported
+    used_config = config_fingerprint(spec.resolve(cad["config"])) if cad.get("config") else None
     outputs, warnings, metrics = {}, [], {"reused": False, "forced": force and not detected.metrics.get("export_needed")}
     try:
         if config and cad.get("check_first", True):
@@ -313,6 +340,9 @@ def export(context: StageContext) -> StageResult:
     if not urdfs:
         return StageResult.failed("export", "PUBLISHED_URDF_MISSING", f"expected a URDF in {package_path / 'urdf'}; found none", outputs=outputs, metrics=metrics)
     outputs.update(package=str(package_path), urdf=str(urdfs[0]))
+    fingerprint = {"schema_version": 1, "job_id": state.get("job_id"), "config": cad.get("config"), "config_fingerprint": used_config,
+                   "note": "written by twin-pipeline's export stage: the configuration (without its source block) this archived export was made from"}
+    fingerprint_path(spec).write_text(json.dumps(fingerprint, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     if publish.get("history"):
         metrics["previous_export_moved_to"] = publish["history"]
     return StageResult.succeeded("export", outputs=outputs, metrics=metrics, warnings=warnings,
