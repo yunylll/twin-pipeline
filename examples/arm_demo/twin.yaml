@@ -1,0 +1,43 @@
+# Demo twin: a 4-joint arm made of primitive shapes, so the pipeline runs without CAD or SolidWorks.
+# Every value below is an example for this demo arm, not a measurement of a real robot.
+schema_version: 1
+robot: arm_demo
+description: Demo arm for tests and CI; primitive geometry, no meshes.
+urdf: urdf/arm_demo.urdf
+up_axis: "+z"
+
+# --- mjcf stage ---
+meshes:
+  max_faces: 200000
+collision:
+  default: none
+actuators:
+  default: {type: position, kp: 50.0, kv: 2.0}
+  joints:
+    finger_joint: {type: position, kp: 200.0, kv: 5.0}
+
+# --- robot facts that are not in the CAD; every value says where it comes from ---
+joints:
+  elbow_joint:
+    lower: -2.0
+    upper: 2.0
+    source: assumed
+    note: Soft limits inside the CAD range until the real stops are known.
+  finger_joint:
+    effort: 3.0
+    source: measured
+    note: Example of a measured value; for the demo only.
+home:
+  pitch_joint: 0.3
+  elbow_joint: -0.6
+assumptions:
+  - id: zero_pose
+    text: Joint zeros are the CAD zero pose; not checked on hardware.
+    source: assumed
+
+# --- smoke and report stages ---
+smoke:
+  sweep_fraction: 0.9
+  settle_seconds: 1.0
+report:
+  title: Demo arm

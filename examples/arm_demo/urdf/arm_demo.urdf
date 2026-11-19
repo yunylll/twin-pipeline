@@ -1,0 +1,95 @@
+<?xml version="1.0"?>
+<!-- Demo arm for tests and CI: primitive shapes only, no meshes, no CAD.
+     One joint of each movable type: continuous (yaw), revolute (pitch, elbow), prismatic (finger),
+     plus a fixed tool frame. Inertias are those of the solid shapes. Z is up. -->
+<robot name="arm_demo">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0.05"/>
+      <mass value="2.0"/>
+      <inertia ixx="0.008333" ixy="0" ixz="0" iyy="0.008333" iyz="0" izz="0.013333"/>
+    </inertial>
+    <visual><origin xyz="0 0 0.05"/><geometry><box size="0.2 0.2 0.1"/></geometry></visual>
+    <collision><origin xyz="0 0 0.05"/><geometry><box size="0.2 0.2 0.1"/></geometry></collision>
+  </link>
+
+  <joint name="yaw_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="turret_link"/>
+    <origin xyz="0 0 0.1"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="20" velocity="2.0"/>
+  </joint>
+
+  <link name="turret_link">
+    <inertial>
+      <origin xyz="0 0 0.05"/>
+      <mass value="1.0"/>
+      <inertia ixx="0.001458" ixy="0" ixz="0" iyy="0.001458" iyz="0" izz="0.00125"/>
+    </inertial>
+    <visual><origin xyz="0 0 0.05"/><geometry><cylinder radius="0.05" length="0.1"/></geometry></visual>
+    <collision><origin xyz="0 0 0.05"/><geometry><cylinder radius="0.05" length="0.1"/></geometry></collision>
+  </link>
+
+  <joint name="pitch_joint" type="revolute">
+    <parent link="turret_link"/>
+    <child link="upper_arm_link"/>
+    <origin xyz="0 0 0.1"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.57" upper="1.57" effort="15" velocity="2.0"/>
+  </joint>
+
+  <link name="upper_arm_link">
+    <inertial>
+      <origin xyz="0 0 0.15"/>
+      <mass value="1.0"/>
+      <inertia ixx="0.007708" ixy="0" ixz="0" iyy="0.007708" iyz="0" izz="0.000417"/>
+    </inertial>
+    <visual><origin xyz="0 0 0.15"/><geometry><box size="0.05 0.05 0.3"/></geometry></visual>
+    <collision><origin xyz="0 0 0.15"/><geometry><box size="0.05 0.05 0.3"/></geometry></collision>
+  </link>
+
+  <joint name="elbow_joint" type="revolute">
+    <parent link="upper_arm_link"/>
+    <child link="forearm_link"/>
+    <origin xyz="0 0 0.3"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-2.5" upper="2.5" effort="10" velocity="2.5"/>
+  </joint>
+
+  <link name="forearm_link">
+    <inertial>
+      <origin xyz="0 0 0.125"/>
+      <mass value="0.6"/>
+      <inertia ixx="0.003205" ixy="0" ixz="0" iyy="0.003205" iyz="0" izz="0.00016"/>
+    </inertial>
+    <visual><origin xyz="0 0 0.125"/><geometry><box size="0.04 0.04 0.25"/></geometry></visual>
+    <collision><origin xyz="0 0 0.125"/><geometry><box size="0.04 0.04 0.25"/></geometry></collision>
+  </link>
+
+  <joint name="finger_joint" type="prismatic">
+    <parent link="forearm_link"/>
+    <child link="finger_link"/>
+    <origin xyz="0 0 0.25"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="0.03" effort="5" velocity="0.1"/>
+  </joint>
+
+  <link name="finger_link">
+    <inertial>
+      <origin xyz="0 0 0.025"/>
+      <mass value="0.05"/>
+      <inertia ixx="0.00001083" ixy="0" ixz="0" iyy="0.00001208" iyz="0" izz="0.00000208"/>
+    </inertial>
+    <visual><origin xyz="0 0 0.025"/><geometry><box size="0.02 0.01 0.05"/></geometry></visual>
+    <collision><origin xyz="0 0 0.025"/><geometry><box size="0.02 0.01 0.05"/></geometry></collision>
+  </link>
+
+  <joint name="tool_joint" type="fixed">
+    <parent link="forearm_link"/>
+    <child link="tool_frame"/>
+    <origin xyz="0 0 0.3"/>
+  </joint>
+
+  <link name="tool_frame"/>
+</robot>
