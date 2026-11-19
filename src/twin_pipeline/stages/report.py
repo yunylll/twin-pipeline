@@ -1,8 +1,10 @@
-"""report stage: one HTML page per run (stage results, metrics, assumptions, changes since the last run).
+"""report stage: one self-contained HTML page per run (stage results, metrics, provenance, changes since the last run).
 
-Owner: session B (docs/ROADMAP.md). Placeholder: validates its section and reports skipped.
-Section owned: report.
-Outputs when implemented: html (the report page); see docs/stage-contract.md.
+Owner: session B (docs/ROADMAP.md). Section owned: report. Output: ``html`` (report/report.html).
+
+The page covers the stages that ran before this one. The runner stops at a failed or unapproved
+stage, so for such a run the report stage does not run; write the page afterwards with
+``python -m twin_pipeline.report <run folder>`` (see twin_pipeline/report).
 """
 
 from __future__ import annotations
@@ -23,7 +25,14 @@ def validate_report(where, value) -> list[str]:
 
 
 def run(context: StageContext) -> StageResult:
-    return StageResult.skipped("report", "report is not implemented yet (session B, see docs/ROADMAP.md)")
+    from ..report import write_for_context
+
+    path, data = write_for_context(context)
+    assumed = sum(1 for row in data.overrides if row["source"] in ("assumed", "unspecified"))
+    assumptions = sum(1 for row in data.assumptions if row["source"] in ("assumed", "unspecified"))
+    metrics = {"stages_reported": len(data.stages) - 1, "assumed_values": assumed, "assumptions_assumed": assumptions,
+               "urdf_values_without_provenance": len(data.urdf_values), "previous_run": data.previous["run"] if data.previous else None}
+    return StageResult.succeeded("report", outputs={"html": context.rel(path)}, metrics=metrics, warnings=list(data.notes))
 
 
 STAGES = [Stage("report", run, "Write an HTML report of the run")]
