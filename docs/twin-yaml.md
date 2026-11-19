@@ -48,8 +48,8 @@ Each section belongs to one stage module, which validates it (`SECTIONS`) and cr
 | `meshes` | `stages/mjcf.py` | `max_faces` (int ≥ 1, default 200 000 = MuJoCo's STL decoder limit; STL files with more faces are split losslessly), `packages: {name: folder}` (where `package://name/` points; default: the nearest folder called `name` above the URDF) |
 | `collision` | `stages/mjcf.py` | `default` (default `mesh`), `links: {link: mode}`; mode is `none`, `mesh`, `convex_hull` or `convex_decomposition` (needs `pip install coacd`, else the stage fails) |
 | `actuators` | `stages/mjcf.py` | `default`, `joints: {joint: {...}}`; each `{type: position\|velocity\|motor\|none, kp, kv}`; `type` is required, `position` needs `kp` (`kv` optional), `velocity` needs `kv`, `motor`/`none` take neither |
-| `smoke` | `stages/smoke.py` | `sweep_fraction` (0–1], `settle_seconds` > 0, `timestep` > 0 |
-| `report` | `stages/report.py` | `title` |
+| `smoke` | `stages/smoke.py` | all optional: `sweep_fraction` (0–1], default 0.9 — each joint is swept to this fraction of its effective range around the middle (continuous joints: ±fraction·π); `sweep_seconds` > 0, default 2 — time per sweep target; `angle_tolerance` > 0 rad, default 0.05, and `distance_tolerance` > 0 m, default 0.002 — how close a sweep target must be reached; `settle_seconds` > 0, default 1 — time holding home under gravity; `timestep` > 0 s — replaces the MJCF's timestep for the smoke test only |
+| `report` | `stages/report.py` | `title` — page title, default the robot name |
 
 ### mjcf stage: what the sections do
 
