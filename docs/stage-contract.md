@@ -65,7 +65,7 @@ Downstream stages depend on these keys; changing one is a contract change (updat
 | `detect` | — | metrics: `config_stale`, `model_sha256` |
 | `export` | `package`, `urdf` | metrics: `job_id` of solidworks-urdf-tool |
 | `ingest` | `package`, `urdf` | the archived copy; `context.urdf()` prefers it |
-| `mjcf` | `mjcf`, `assets` | the MJCF file MuJoCo loads with `MjModel.from_xml_path`; meshes it references |
+| `mjcf` | `mjcf`, `assets` | `mjcf/model.xml`, loads with `MjModel.from_xml_path` and can be moved together with `assets/` (`meshdir="assets"`); `assets` is that folder, always present. Actuators and the `home` keyframe are named after joints, fixed frames are bodies and sites named after their links. metrics: `nbody`, `njnt`, `nu`, `ngeom`, `nmesh`, `nmeshface`, `nkey`, `nsite`, `visual_geoms`, `collision_geoms`, `mesh_files`, `meshes_split`, `mesh_parts`, `meshes_converted`, `max_faces`, `gravity`, `collision_links` (links per mode), `actuators` ({joint: type}), `fixed_frames` |
 | `smoke` | `smoke` | JSON of the checks and their numbers |
 | `report` | `html` | self-contained page |
 
