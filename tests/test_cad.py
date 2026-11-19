@@ -104,6 +104,12 @@ def test_unchanged_cad_reuses_the_archive_without_solidworks(twin, tmp_path):
     assert result(again, "detect").metrics["export_needed"] is False
     assert result(again, "export").metrics["reused"] is True and result(again, "ingest").status == "succeeded"
     assert len(starts(tool)) == before
+    # the export ran on the check's prepared copy, whose assembly differs from the original: the originals count
+    fingerprint = json.loads((folder / "export" / "twin-pipeline-export.json").read_text(encoding="utf-8"))
+    assert str(folder / "source" / "robot.SLDASM") in fingerprint["source_hashes"]
+    (folder / "source" / "part.SLDPRT").write_bytes(b"part v2")
+    reasons = result(run(folder, tmp_path, stages=CAD_STAGES[:1]), "detect").metrics["export_reasons"]
+    assert reasons == ["1 of 2 CAD files the archived export read changed or are missing: part.SLDPRT"]
 
 
 def test_what_makes_an_export_needed(twin, tmp_path):
@@ -149,7 +155,7 @@ def test_config_edited_in_the_archive_is_noticed(twin, tmp_path):
 
     (folder / "export" / "twin-pipeline-export.json").unlink()  # an archive from before twin-pipeline
     reasons = result(run(folder, tmp_path, stages=CAD_STAGES[:1]), "detect").metrics["export_reasons"]
-    assert len(reasons) == 1 and "cannot be ruled out" in reasons[0]
+    assert any("cannot be ruled out" in r for r in reasons)
 
 
 def test_force_export_option(twin, tmp_path):

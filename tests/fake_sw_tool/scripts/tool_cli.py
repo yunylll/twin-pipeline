@@ -53,6 +53,15 @@ def main():
         kind, start = job["kind"], job["args"]
         answer = {"job_id": job_id, "status": "succeeded", "passed": True, "operation": kind, "warnings": []}
         answer.update(scenario.get(kind, {}))
+        model = Path(start[1])
+        if kind == "check" and answer["status"] == "succeeded" and scenario.get("prepared_copy", True):
+            # like the real tool: a passed check leaves a Pack and Go copy whose assembly has rewritten references
+            copy = jobs / f"{job_id}-cad" / model.name
+            copy.parent.mkdir()
+            copy.write_bytes(model.read_bytes() + b" (references rewritten)")
+            (copy.parent / "original.txt").write_text(str(model), encoding="utf-8")
+            answer["reusable_model"] = str(copy)
+            answer["source_hashes_before"] = {str(p): sha(p) for p in model.parent.iterdir() if p.is_file()}
         if kind == "export" and answer["status"] == "succeeded" and answer["passed"] and "--publish-to" in start:
             answer["publish"] = publish(start, job_id, scenario, answer, job.get("config"))
     else:
@@ -83,8 +92,11 @@ def publish(start, job_id, scenario, answer, config):
     export.mkdir(parents=True, exist_ok=True)
     if config:
         shutil.copy2(config, export / "export-config.json")
-    record = dict(answer, source_model_sha256=sha(model), source_hashes_before={str(model): sha(model)},
+    record = dict(answer, source_model_sha256=sha(model), source_hashes_before={str(p): sha(p) for p in model.parent.iterdir() if p.suffix.upper() in (".SLDASM", ".SLDPRT")},
                   validation={"passed": True, "links": 6, "joints": 5})
+    original = model.parent / "original.txt"
+    if original.exists():  # exported from a prepared copy: the record names the original's hash separately
+        record["cad_version_sha256"] = sha(original.read_text(encoding="utf-8"))
     (export / "export-result.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
     block = {"passed": True, "package": {"path": str(destination)}}
     if moved:

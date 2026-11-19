@@ -210,11 +210,21 @@ def export_reasons(spec, model: Path, config_path: Path | None, archived: dict) 
     if not isinstance(record, dict) or record.get("status") != "succeeded" or record.get("passed") is not True:
         return ["the archive has no passed export record (export/export-result.json)"]
     reasons = []
+    fingerprint = _read_json(fingerprint_path(spec)) or {}
+    ours = bool(fingerprint.get("job_id")) and fingerprint.get("job_id") == record.get("job_id")
     # cad_version_sha256 is the original model's hash when the export ran on a prepared copy
     if (record.get("cad_version_sha256") or record.get("source_model_sha256")) != sha256(model):
         reasons.append("the model file changed since the archived export")
-    before = record.get("source_hashes_before") or {}
-    if before:
+    originals = fingerprint.get("source_hashes") if ours else None
+    if originals:
+        # the original CAD files by path (an export from a prepared copy records the copy's files, whose
+        # assemblies Pack and Go rewrote, so the export record alone cannot be compared)
+        changed = [path for path, digest in originals.items() if not Path(path).is_file() or sha256(Path(path)) != digest]
+        if changed:
+            names = ", ".join(Path(p).name for p in changed[:5]) + (", ..." if len(changed) > 5 else "")
+            reasons.append(f"{len(changed)} of {len(originals)} CAD files the archived export read changed or are missing: {names}")
+    elif record.get("source_hashes_before"):
+        before = record["source_hashes_before"]
         present = _current_digests(model.parent)
         missing = sum(1 for digest in before.values() if digest not in present)
         if missing:
@@ -222,9 +232,8 @@ def export_reasons(spec, model: Path, config_path: Path | None, archived: dict) 
     else:
         reasons.append("the archived export did not record the hashes of the CAD files it read")
     if config_path is not None:
-        fingerprint = _read_json(fingerprint_path(spec)) or {}
         archived_copy = archive_dir(spec) / "export" / "export-config.json"
-        if fingerprint.get("job_id") and fingerprint.get("job_id") == record.get("job_id"):
+        if ours:
             if fingerprint.get("config_fingerprint") != config_fingerprint(config_path):
                 reasons.append("the export configuration changed since the archived export")
         elif archived_copy.exists() and config_path.resolve() == archived_copy.resolve():
@@ -329,7 +338,7 @@ def export(context: StageContext) -> StageResult:
     metrics["job_id"] = state.get("job_id")
     if state.get("status") != "succeeded" or state.get("passed") is not True:
         return _job_failure("export", "export", state, outputs)
-    warnings += [str(w) for w in state.get("warnings") or []]
+    warnings = list(dict.fromkeys(warnings + [str(w) for w in state.get("warnings") or []]))  # check and export repeat some
     publish = state.get("publish") or {}
     if publish.get("passed") is not True:
         message = (publish.get("error") or {}).get("message") or publish.get("message") or "the tool did not publish the export"
@@ -340,8 +349,12 @@ def export(context: StageContext) -> StageResult:
     if not urdfs:
         return StageResult.failed("export", "PUBLISHED_URDF_MISSING", f"expected a URDF in {package_path / 'urdf'}; found none", outputs=outputs, metrics=metrics)
     outputs.update(package=str(package_path), urdf=str(urdfs[0]))
+    # the original CAD files and their hashes: from the check job when the export ran on its prepared copy
+    sources = (check if metrics.get("reused_prepared_copy") else state).get("source_hashes_before") or {}
     fingerprint = {"schema_version": 1, "job_id": state.get("job_id"), "config": cad.get("config"), "config_fingerprint": used_config,
-                   "note": "written by twin-pipeline's export stage: the configuration (without its source block) this archived export was made from"}
+                   "source_hashes": sources,
+                   "note": "written by twin-pipeline's export stage: the configuration (without its source block) and the original "
+                           "CAD files this archived export was made from"}
     fingerprint_path(spec).write_text(json.dumps(fingerprint, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     if publish.get("history"):
         metrics["previous_export_moved_to"] = publish["history"]
