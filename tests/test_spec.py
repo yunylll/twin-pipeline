@@ -92,7 +92,7 @@ def test_urdf_cross_check(tmp_path, data):
     data["joints"]["yaw_joint"] = {"lower": -1.0, "source": "assumed"}
     data["home"]["elbow_joint"] = 2.2
     data["home"]["tool_joint"] = 0.0
-    data["actuators"]["joints"]["tool_joint"] = {"type": "position"}
+    data["actuators"]["joints"]["tool_joint"] = {"type": "position", "kp": 1.0}
     errors = errors_of(tmp_path, data)
     assert any("joints.elbo_joint: no joint 'elbo_joint' in the URDF; did you mean elbow_joint" in e for e in errors)
     assert any("joints.yaw_joint: the URDF joint is continuous" in e for e in errors)

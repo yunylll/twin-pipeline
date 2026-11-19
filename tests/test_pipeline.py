@@ -25,7 +25,7 @@ def test_default_pipeline_on_example(spec, tmp_path):
     assert [row["name"] for row in summary["stages"]] == ["detect", "export", "ingest", "mjcf", "smoke", "report"]
     for name in ("detect", "export", "ingest"):
         assert rows[name]["status"] == "skipped" and rows[name]["applicable"] is False
-    assert rows["mjcf"]["status"] == "skipped" and rows["mjcf"]["applicable"] is True
+    assert rows["mjcf"]["status"] == "succeeded" and (run_dir / "mjcf" / "model.xml").exists()
     assert summary["status"] == "incomplete" and summary["passed"] is False
     assert read_result(run_dir / "mjcf" / "result.json").stage == "mjcf"
 
