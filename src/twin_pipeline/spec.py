@@ -18,7 +18,7 @@ from typing import Any
 import yaml
 
 from . import checks
-from .urdf import UrdfModel, read_urdf
+from .urdf import UrdfModel, mimic_problems, read_urdf
 
 SCHEMA_VERSION = 1
 PROVENANCE = ("cad", "assumed", "measured", "calibrated")
@@ -97,6 +97,15 @@ class TwinSpec:
             return None if urdf_value is None else urdf_value - offset
 
         return pick("lower", item.lower), pick("upper", item.upper)
+
+    def follower_position(self, joint, urdf: UrdfModel, leader_position: float) -> float:
+        """Where a URDF mimic joint sits, in the twin's coordinate, when its leader is at leader_position (twin's coordinate).
+
+        URDF: follower = offset + multiplier * leader, both in URDF coordinates; twin q = URDF q - zero_offset.
+        """
+        mimic = urdf.joints[joint].mimic
+        leader_urdf = leader_position + self.zero_offset(mimic.leader)
+        return mimic.offset + mimic.multiplier * leader_urdf - self.zero_offset(joint)
 
 
 def _validate_joints(joints: Any) -> list[str]:
@@ -205,7 +214,7 @@ def check_against_urdf(spec: TwinSpec, urdf: UrdfModel) -> list[str]:
     """Cross-check joint names, limits and home values (and every stage section) against the URDF."""
     from .stages import urdf_checks
 
-    errors = []
+    errors = list(mimic_problems(urdf))
     for name, override in (spec.data.get("joints") or {}).items():
         if name not in urdf.joints:
             errors.append(_unknown_joint(f"joints.{name}", name, urdf))
@@ -226,6 +235,9 @@ def check_against_urdf(spec: TwinSpec, urdf: UrdfModel) -> list[str]:
         item = urdf.joints[name]
         if not item.movable:
             errors.append(f"home.{name}: the URDF joint is {item.type} and cannot be posed")
+        elif item.mimic is not None:
+            errors.append(f"home.{name}: the joint follows {item.mimic.leader} through a URDF <mimic> "
+                          f"(offset {item.mimic.offset:g} + {item.mimic.multiplier:g} x {item.mimic.leader}); set home.{item.mimic.leader} instead")
         elif item.bounded:
             lower, upper = spec.limits(name, urdf)
             if lower is not None and upper is not None and not lower <= value <= upper:

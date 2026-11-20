@@ -12,6 +12,9 @@ How the pieces fit (each choice is in docs/twin-yaml.md as well):
 * Joint overrides from twin.yaml replace the URDF values; actuators are added only where twin.yaml
   asks for one, with the gains it gives and ranges from the effective joint values.
 * ``home`` becomes the keyframe ``home``.
+* A URDF ``<mimic>`` becomes a joint equality constraint ``mimic_<joint>`` (follower = offset +
+  multiplier * leader, in URDF coordinates). A follower gets no actuator, and its keyframe position
+  is computed from its leader's.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ import mujoco as mj
 import numpy as np
 
 from ..spec import TwinSpec
-from ..urdf import UrdfModel, read_urdf
+from ..urdf import UrdfModel, mimic_problems, read_urdf
 from . import collision as hulls
 from . import stl
 from .errors import BuildError
@@ -112,6 +115,9 @@ def _kinematic_urdf(root: ET.Element, warnings: list[str]) -> str:
     for block in root.findall("mujoco"):
         warnings.append("the URDF's own <mujoco> block was replaced by the mjcf stage's compiler settings")
         root.remove(block)
+    for joint in root.findall("joint"):  # the builder adds mimic constraints itself, named and checked
+        for mimic in joint.findall("mimic"):
+            joint.remove(mimic)
     root.insert(0, ET.fromstring('<mujoco><compiler fusestatic="false" discardvisual="false"/></mujoco>'))
     return ET.tostring(root, encoding="unicode")
 
@@ -211,9 +217,9 @@ def build_mjcf(spec: TwinSpec, urdf_path: Path, out_dir: Path) -> Build:
                          f"collision mode convex_decomposition (links: {', '.join(wants_decomposition)}) needs the coacd "
                          f"package; it is not installed. Install it (pip install coacd) or choose mesh / convex_hull / none")
 
-    mimics = [joint.get("name") for joint in root.findall("joint") if joint.find("mimic") is not None]
-    if mimics:
-        warnings.append(f"<mimic> is not modelled; these joints move on their own: {', '.join(mimics)}")
+    problems = mimic_problems(urdf)
+    if problems:
+        raise BuildError("MIMIC_INVALID", "; ".join(problems))
     textured = sorted({link.get("name") for link in root.findall("link") for texture in link.iter("texture")})
     if textured:
         warnings.append(f"URDF textures are not carried over (links: {', '.join(textured)}); colours are")
@@ -296,10 +302,42 @@ def build_mjcf(spec: TwinSpec, urdf_path: Path, out_dir: Path) -> Build:
         if item.offset:
             joint.ref = -item.offset
 
+    # URDF <mimic>: a joint equality constraint. MuJoCo's form is y - y0 = a0 + a1 (x - x0) with y0, x0 the
+    # joints' qpos0 (= ref = -zero_offset), so in URDF coordinates it is exactly follower = offset + multiplier * leader.
+    mimics = {}
+    for name, joint in urdf.joints.items():
+        if joint.mimic is None:
+            continue
+        equality = mjspec.add_equality()
+        equality.type, equality.objtype = mj.mjtEq.mjEQ_JOINT, mj.mjtObj.mjOBJ_JOINT
+        equality.name, equality.name1, equality.name2 = f"mimic_{name}", name, joint.mimic.leader
+        data = list(equality.data)
+        data[:5] = [joint.mimic.offset, joint.mimic.multiplier, 0.0, 0.0, 0.0]
+        equality.data = data
+        mimics[name] = {"leader": joint.mimic.leader, "multiplier": joint.mimic.multiplier, "offset": joint.mimic.offset}
+        follower, leader = values[name], values[joint.mimic.leader]
+        if follower.bounded:
+            if leader.bounded:
+                reach = sorted(spec.follower_position(name, urdf, value) for value in (leader.lower, leader.upper))
+                if reach[0] < follower.lower - 1e-9 or reach[1] > follower.upper + 1e-9:
+                    warnings.append(f"mimic {name}: over {leader.name}'s range [{leader.lower:.6g}, {leader.upper:.6g}] it would move to "
+                                    f"[{reach[0]:.6g}, {reach[1]:.6g}], outside its own limits [{follower.lower:.6g}, {follower.upper:.6g}]; "
+                                    f"at the ends the joint limit and the mimic constraint fight")
+            elif joint.mimic.multiplier != 0:
+                warnings.append(f"mimic {name}: the leader {leader.name} is unlimited but {name} has limits [{follower.lower:.6g}, {follower.upper:.6g}]; "
+                                f"they fight once the leader turns far enough")
+    if mimics and not spec.data.get("home") and any(m["offset"] for m in mimics.values()):
+        warnings.append("mimic joints with an offset are not at their constraint at the URDF zero pose and settle at the start; "
+                        "give a home pose so the keyframe starts consistent")
+
     actuated = {}
+    skipped_followers = []
     for name, item in values.items():
         config = actuator_config(spec, name)
         if config is None or mjspec.joint(name) is None:
+            continue
+        if name in mimics:  # it moves with its leader; an actuator would fight the constraint
+            skipped_followers.append(name)
             continue
         actuator = mjspec.add_actuator(name=name, target=name, trntype=mj.mjtTrn.mjTRN_JOINT)
         kind = config["type"]
@@ -321,6 +359,8 @@ def build_mjcf(spec: TwinSpec, urdf_path: Path, out_dir: Path) -> Build:
             actuator.ctrlrange = list(limits)
             actuator.ctrllimited = mj.mjtLimited.mjLIMITED_TRUE
         actuated[name] = kind
+    if skipped_followers:
+        warnings.append(f"no actuator for the mimic joints {', '.join(skipped_followers)}: they move with their leaders")
 
     def compile_spec():
         try:
@@ -341,6 +381,14 @@ def build_mjcf(spec: TwinSpec, urdf_path: Path, out_dir: Path) -> Build:
             if item is not None and item.bounded and not item.lower <= value <= item.upper:
                 raise BuildError("HOME_OUTSIDE_LIMITS", f"home.{name}: expected a value inside the effective range "
                                                         f"[{item.lower}, {item.upper}] (after zero_offset); found {value}")
+            qpos[model.jnt_qposadr[mj.mj_name2id(model, mj.mjtObj.mjOBJ_JOINT, name)]] = value
+        for name, mimic in mimics.items():  # followers start where their leader puts them
+            leader_value = float(qpos[model.jnt_qposadr[mj.mj_name2id(model, mj.mjtObj.mjOBJ_JOINT, mimic["leader"])]])
+            value = spec.follower_position(name, urdf, leader_value)
+            item = values[name]
+            if item.bounded and not item.lower - 1e-9 <= value <= item.upper + 1e-9:
+                raise BuildError("HOME_OUTSIDE_LIMITS", f"home: {mimic['leader']} at {leader_value:.6g} puts the mimic joint {name} at "
+                                                        f"{value:.6g}, outside its range [{item.lower:.6g}, {item.upper:.6g}]")
             qpos[model.jnt_qposadr[mj.mj_name2id(model, mj.mjtObj.mjOBJ_JOINT, name)]] = value
         ctrl = []
         for index in range(model.nu):
@@ -370,5 +418,6 @@ def build_mjcf(spec: TwinSpec, urdf_path: Path, out_dir: Path) -> Build:
         "meshes_converted": sum(item.format == "ascii-stl" for item in prepared),
         "max_faces": max_faces, "gravity": gravity(spec.up_axis),
         "collision_links": dict(collision_links), "actuators": actuated, "fixed_frames": fixed_frames,
+        "neq": saved.neq, "mimic": mimics,
     }
     return Build(mjcf=path, assets=assets, metrics=metrics, warnings=warnings)

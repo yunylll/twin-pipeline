@@ -250,16 +250,26 @@ def _check_model(mujoco, model, context, urdf_model, found: _Findings, report: d
             continue
         joints[joint_name]["actuators"].append({"id": index, "name": act_name, "kind": kind, "gear": gear})
 
-    # joints driven by an equality constraint (e.g. a URDF mimic) follow another joint
-    followers = set()
+    # joints driven by an equality constraint (e.g. a URDF mimic) follow another joint:
+    # y - y0 = a0 + a1 (x - x0) + a2 (x - x0)^2 + ..., with y0, x0 the joints' qpos0
+    relations = {}
     for e in range(model.neq):
         if model.eq_type[e] == mujoco.mjtEq.mjEQ_JOINT and model.eq_active0[e] and model.eq_obj2id[e] >= 0:
-            followers.add(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, int(model.eq_obj1id[e])))
+            follower = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, int(model.eq_obj1id[e]))
+            leader = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, int(model.eq_obj2id[e]))
+            if follower in joints and leader in joints:
+                relations[follower] = {"leader": leader, "coef": [float(c) for c in model.eq_data[e][:5]],
+                                       "y0": float(model.qpos0[joints[follower]["qadr"]]), "x0": float(model.qpos0[joints[leader]["qadr"]])}
     for name, info in joints.items():
-        info["follower"] = name in followers
+        info["follower"] = name in relations
+        info["follows"] = relations.get(name)
         acts = info["actuators"]
         if info["follower"]:
-            mode = "follows an equality constraint"
+            relation = relations[name]
+            mode = f"follows {relation['leader']} (equality constraint)"
+            rows[name]["follows"] = {"leader": relation["leader"], "polycoef": [_round(c) for c in relation["coef"]]}
+            if acts:
+                found.warnings.append(f"{name} follows {relation['leader']} but also has actuators ({', '.join(a['name'] for a in acts)}): they fight the constraint")
         elif not acts:
             mode = "qpos (no actuator)"
             found.warnings.append(f"{name} has no actuator: swept by setting qpos directly (checks range and stability, not actuation); passive while settling")
@@ -285,6 +295,12 @@ def _check_gravity(model, up_axis, found: _Findings, report: dict):
     report["gravity"]["alignment"] = _round(alignment)
     if alignment < 0.999:
         found.fail("GRAVITY_MISMATCH", f"expected gravity pointing against up_axis {up_axis}, found {gravity}")
+
+
+def follower_target(relation, leader_position):
+    """Where an equality-constrained joint should be when its leader is at leader_position."""
+    dx = leader_position - relation["x0"]
+    return relation["y0"] + sum(c * dx ** k for k, c in enumerate(relation["coef"]))
 
 
 def _sweep_targets(row, fraction):
@@ -358,16 +374,24 @@ def run(context: StageContext) -> StageResult:
     home_spec = context.spec.data.get("home") or {}
     home = [float(v) for v in model.qpos0]
     home_rows, home_ok = {}, True
-    for name, info in joints.items():
+    for name, info in sorted(joints.items(), key=lambda item: item[1]["follower"]):  # leaders first
         row = report["joints"][name]
-        value = float(home_spec.get(name, 0.0))
-        source = "twin.yaml home" if name in home_spec else "zero (no home given)"
         limits = row["effective_limits"]
+        if info["follower"]:
+            leader = info["follows"]["leader"]
+            value = follower_target(info["follows"], home[joints[leader]["qadr"]])
+            source = f"follows {leader}"
+        else:
+            value = float(home_spec.get(name, 0.0))
+            source = "twin.yaml home" if name in home_spec else "zero (no home given)"
         inside = limits is None or limits[0] - LIMIT_TOLERANCE <= value <= limits[1] + LIMIT_TOLERANCE
         home_rows[name] = {"value": value, "from": source, "inside_limits": inside}
         if not inside:
             home_ok = False
-            if name in home_spec:
+            if info["follower"]:
+                found.ask(f"home pose of {name}", f"{source} at its home puts {name} at {value:.4g}, outside its effective limits {limits}: "
+                                                  f"the mimic constraint and the joint limit fight at home")
+            elif name in home_spec:
                 found.fail("HOME_OUTSIDE_LIMITS", f"home.{name}: expected inside the effective limits {limits}, found {value}")
             else:
                 clamped = min(max(value, limits[0]), limits[1])
@@ -401,6 +425,7 @@ def run(context: StageContext) -> StageResult:
     home_targets = {name: sim.home[info["qadr"]] for name, info in joints.items()}
     reached = total = 0
     worst = {"hinge": 0.0, "slide": 0.0}
+    followed, total_followers, worst_follower = [0], [0], {"hinge": 0.0, "slide": 0.0}
     sweep_failed = False
     for name, info in joints.items():
         row = report["joints"][name]
@@ -470,12 +495,40 @@ def run(context: StageContext) -> StageResult:
                     why.append(f"{sim.data.ncon} contact(s) at the end: may be blocked by geometry")
                 why.append("is it blocked by design, or does the actuator need more gain or force?")
                 found.ask(f"{name} sweep to {target:.4g} {unit}", "; ".join(why))
+            # mimic followers of this joint must sit where the constraint puts them
+            for follower_name, follower in joints.items():
+                if not follower["follower"] or follower["follows"]["leader"] != name:
+                    continue
+                expected = follower_target(follower["follows"], position)
+                actual = float(sim.data.qpos[follower["qadr"]])
+                follower_tolerance = settings["angle_tolerance"] if follower["kind"] == "hinge" else settings["distance_tolerance"]
+                follower_unit = "rad" if follower["kind"] == "hinge" else "m"
+                limits = report["joints"][follower_name]["effective_limits"]
+                outside = limits is not None and not limits[0] - LIMIT_TOLERANCE <= expected <= limits[1] + LIMIT_TOLERANCE
+                gap = abs(actual - expected)
+                entry.setdefault("followers", {})[follower_name] = {"expected": _round(expected), "reached": _round(actual), "error": _round(gap),
+                                                                     "within_tolerance": gap <= follower_tolerance, "expected_outside_limits": outside}
+                total_followers[0] += 1
+                worst_follower[follower["kind"]] = max(worst_follower[follower["kind"]], gap)
+                if outside:
+                    found.ask(f"{follower_name} follows {name} to {target:.4g} {unit}",
+                              f"the constraint puts {follower_name} at {expected:.4g} {follower_unit}, outside its effective limits {limits}: "
+                              f"the joint limit and the mimic constraint fight there (reached {actual:.4g} {follower_unit})")
+                elif gap > follower_tolerance:
+                    found.ask(f"{follower_name} follows {name} to {target:.4g} {unit}",
+                              f"expected {expected:.4g} {follower_unit} from the constraint, reached {actual:.4g} {follower_unit} "
+                              f"({gap:.3g} {follower_unit} off, tolerance {follower_tolerance:g}): blocked by contact or limits, or a too-soft constraint?")
+                else:
+                    followed[0] += 1
         del sim.held[len(sim.held) - len(others):]
         if sweep_failed:
             break
-    report["checks"]["sweep"] = "failed" if sweep_failed else ("review" if reached < total else "passed")
+    report["checks"]["sweep"] = "failed" if sweep_failed else ("review" if reached < total or followed[0] < total_followers[0] else "passed")
     metrics.update({"sweep_targets": total, "sweep_reached": reached, "sweep_max_error_rad": _round(worst["hinge"]),
                     "sweep_max_error_m": _round(worst["slide"])})
+    if total_followers[0]:
+        metrics.update({"mimic_checks": total_followers[0], "mimic_followed": followed[0],
+                        "mimic_max_error_rad": _round(worst_follower["hinge"]), "mimic_max_error_m": _round(worst_follower["slide"])})
     if found.errors:
         return finish(metrics)
 

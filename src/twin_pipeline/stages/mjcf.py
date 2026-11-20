@@ -96,6 +96,9 @@ def check_names(spec, urdf) -> list[str]:
             errors.append(f"actuators.joints.{name}: no joint {name!r} in the URDF")
         elif not urdf.joints[name].movable:
             errors.append(f"actuators.joints.{name}: the URDF joint is {urdf.joints[name].type} and cannot be actuated")
+        elif urdf.joints[name].mimic is not None and (spec.section("actuators")["joints"][name] or {}).get("type") != "none":
+            errors.append(f"actuators.joints.{name}: the joint follows {urdf.joints[name].mimic.leader} through a URDF <mimic>, "
+                          f"so an actuator would fight that constraint; actuate {urdf.joints[name].mimic.leader} instead")
     return errors
 
 
