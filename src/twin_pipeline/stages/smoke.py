@@ -72,15 +72,16 @@ def _round(value, digits=6):
 
 
 def _actuator_kind(mujoco, model, index) -> str:
-    gain, bias = model.actuator_gaintype[index], model.actuator_biastype[index]
+    # compare plain ints: numpy integers against MuJoCo's pybind enums do not compare the same on every OS
+    gain, bias = int(model.actuator_gaintype[index]), int(model.actuator_biastype[index])
     gp, bp = model.actuator_gainprm[index], model.actuator_biasprm[index]
-    if model.actuator_dyntype[index] not in (mujoco.mjtDyn.mjDYN_NONE, mujoco.mjtDyn.mjDYN_FILTER, mujoco.mjtDyn.mjDYN_FILTEREXACT):
+    if int(model.actuator_dyntype[index]) not in (int(mujoco.mjtDyn.mjDYN_NONE), int(mujoco.mjtDyn.mjDYN_FILTER), int(mujoco.mjtDyn.mjDYN_FILTEREXACT)):
         return "unsupported"
-    if gain != mujoco.mjtGain.mjGAIN_FIXED:
+    if gain != int(mujoco.mjtGain.mjGAIN_FIXED):
         return "unsupported"
-    if bias == mujoco.mjtBias.mjBIAS_NONE:
+    if bias == int(mujoco.mjtBias.mjBIAS_NONE):
         return "motor"
-    if bias == mujoco.mjtBias.mjBIAS_AFFINE and gp[0] > 0:
+    if bias == int(mujoco.mjtBias.mjBIAS_AFFINE) and gp[0] > 0:
         if bp[0] == 0 and bp[1] < 0 and math.isclose(-bp[1], gp[0], rel_tol=1e-9):
             return "position"
         if bp[0] == 0 and bp[1] == 0 and bp[2] < 0 and math.isclose(-bp[2], gp[0], rel_tol=1e-9):
@@ -236,7 +237,7 @@ def _check_model(mujoco, model, context, urdf_model, found: _Findings, report: d
     for index in range(model.nu):
         act_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, index) or f"actuator #{index}"
         joint_id = int(model.actuator_trnid[index][0])
-        if model.actuator_trntype[index] != mujoco.mjtTrn.mjTRN_JOINT or joint_id < 0:
+        if int(model.actuator_trntype[index]) != int(mujoco.mjtTrn.mjTRN_JOINT) or joint_id < 0:
             found.warnings.append(f"{act_name} does not act on a joint directly: left at ctrl 0")
             continue
         joint_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, joint_id)
@@ -254,7 +255,7 @@ def _check_model(mujoco, model, context, urdf_model, found: _Findings, report: d
     # y - y0 = a0 + a1 (x - x0) + a2 (x - x0)^2 + ..., with y0, x0 the joints' qpos0
     relations = {}
     for e in range(model.neq):
-        if model.eq_type[e] == mujoco.mjtEq.mjEQ_JOINT and model.eq_active0[e] and model.eq_obj2id[e] >= 0:
+        if int(model.eq_type[e]) == int(mujoco.mjtEq.mjEQ_JOINT) and model.eq_active0[e] and model.eq_obj2id[e] >= 0:
             follower = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, int(model.eq_obj1id[e]))
             leader = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, int(model.eq_obj2id[e]))
             if follower in joints and leader in joints:
@@ -401,8 +402,8 @@ def run(context: StageContext) -> StageResult:
         home[info["qadr"]] = value
     sim = _Sim(mujoco, model, joints, home)
     for j in range(model.njnt):
-        if model.jnt_type[j] in (mujoco.mjtJoint.mjJNT_FREE, mujoco.mjtJoint.mjJNT_BALL):
-            nq = 7 if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_FREE else 4
+        if int(model.jnt_type[j]) in (int(mujoco.mjtJoint.mjJNT_FREE), int(mujoco.mjtJoint.mjJNT_BALL)):
+            nq = 7 if int(model.jnt_type[j]) == int(mujoco.mjtJoint.mjJNT_FREE) else 4
             sim.held.append((int(model.jnt_qposadr[j]), nq, int(model.jnt_dofadr[j]), nq - 1))
     sim.reset()
     contacts = []
